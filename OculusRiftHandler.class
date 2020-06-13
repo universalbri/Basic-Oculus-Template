@@ -1,0 +1,25 @@
+#pragma once
+#include "Win32_GLAppUtil.h"
+#include "OVR_CAPI_GL.h"
+#include "OculusRiftDevice.class"
+
+class OculusRiftHandler
+{
+public:
+	OculusRiftHandler( HINSTANCE hinst )
+	{
+		// Initializes LibOVR, and the Rift
+		ovrInitParams initParams = { ovrInit_RequestVersion | ovrInit_FocusAware, OVR_MINOR_VERSION, NULL, 0, 0 };
+		ovrResult result = ovr_Initialize(&initParams);
+		VALIDATE(OVR_SUCCESS(result), "Failed to initialize libOVR.");
+
+		VALIDATE(Platform.InitWindow(hinst, L"Basic Oculus Template (GL)"), "Failed to open window.");
+
+		return;
+	}
+	~OculusRiftHandler()
+	{
+		ovr_Shutdown();
+		return;
+	}
+};

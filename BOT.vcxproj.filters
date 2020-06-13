@@ -1,0 +1,56 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<Project ToolsVersion="4.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <ItemGroup>
+    <Filter Include="Source Files">
+      <UniqueIdentifier>{6d7ddb5c-9e98-476a-9d3b-1a3d463e9f72}</UniqueIdentifier>
+      <Extensions>cpp;c;cxx;rc;def;r;odl;idl;hpj;bat</Extensions>
+    </Filter>
+    <Filter Include="Header Files">
+      <UniqueIdentifier>{11fd0517-f741-4cbd-861f-4d2a9b538340}</UniqueIdentifier>
+      <Extensions>h;hpp;hxx;hm;inl</Extensions>
+    </Filter>
+    <Filter Include="Resource Files">
+      <UniqueIdentifier>{ec73b04a-9507-4b31-87af-bbfdc56442e1}</UniqueIdentifier>
+      <Extensions>ico;cur;bmp;dlg;rc2;rct;bin;rgs;gif;jpg;jpeg;jpe</Extensions>
+    </Filter>
+    <Filter Include="GLE">
+      <UniqueIdentifier>{58dd4d65-6a6c-478c-aaf8-35a5460420e1}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Oculus Objects">
+      <UniqueIdentifier>{50b74906-9301-4155-b9bb-608aa7c1f878}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Scene Objects">
+      <UniqueIdentifier>{92f7224b-aff0-403f-a51c-fc44fcd9a8a9}</UniqueIdentifier>
+    </Filter>
+  </ItemGroup>
+  <ItemGroup>
+    <ClCompile Include="BOT.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="..\ovr_sdk_win_1.43.0\LibOVRKernel\Src\GL\CAPI_GLE.cpp">
+      <Filter>GLE</Filter>
+    </ClCompile>
+  </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="Win32_GLAppUtil.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+  </ItemGroup>
+  <ItemGroup>
+    <None Include="OculusRiftDevice.class">
+      <Filter>Oculus Objects</Filter>
+    </None>
+    <None Include="OculusTextureBuffer.class">
+      <Filter>Oculus Objects</Filter>
+    </None>
+    <None Include="Scene.class">
+      <Filter>Scene Objects</Filter>
+    </None>
+    <None Include="Model.class">
+      <Filter>Scene Objects</Filter>
+    </None>
+    <None Include="Vertex.class">
+      <Filter>Scene Objects</Filter>
+    </None>
+  </ItemGroup>
+</Project>

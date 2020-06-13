@@ -1,0 +1,21 @@
+#pragma once
+
+class Vertex
+{
+public:
+	Vector3f  Pos;
+	DWORD     C;
+	float     U, V;
+
+	Vertex() {};
+	Vertex( float x, float y, float z, float u, float v, DWORD c )
+		{
+		Pos.x = x;
+		Pos.y = y;
+		Pos.z = z;
+		C = c;
+		U = u;
+		V = v;
+		};
+	~Vertex() {};
+};

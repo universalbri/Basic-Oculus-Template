@@ -1,0 +1,294 @@
+#pragma once
+#include "Win32_GLAppUtil.h"
+
+#include "OculusTextureBuffer.class"
+#include "Scene.class"
+
+class OculusRiftDevice
+{
+public:
+    ovrSession			session;
+private:
+	GLuint				mirrorFBO = 0;
+	ovrMirrorTexture	mirrorTexture = nullptr;
+	ovrGraphicsLuid		luid;
+	OculusTextureBuffer *eyeRenderTexture[2] = { nullptr, nullptr };
+	ovrHmdDesc			hmdDesc;
+	long long			frameIndex = 0;
+	ovrSizei			windowSize;
+	float			    zCur;
+	bool				bInitFlyIn = true;
+
+	public: OculusRiftDevice(HINSTANCE hinst)
+	{
+		// Initializes LibOVR, and the Rift
+		ovrInitParams initParams = { ovrInit_RequestVersion | ovrInit_FocusAware, OVR_MINOR_VERSION, NULL, 0, 0 };
+		ovrResult result = ovr_Initialize(&initParams);
+		VALIDATE(OVR_SUCCESS(result), "Failed to initialize libOVR.");
+		VALIDATE(Platform.InitWindow(hinst, L"Basic Oculus Template (GL)"), "Failed to open window.");
+		zCur = -75;
+		return;
+	}
+
+	public: ~OculusRiftDevice()
+	{
+		if (mirrorFBO) glDeleteFramebuffers(1, &mirrorFBO);
+		if (mirrorTexture) ovr_DestroyMirrorTexture(session, mirrorTexture);
+		for (int eye = 0; eye < 2; ++eye)
+		{
+			Platform.ReleaseDevice();
+			delete eyeRenderTexture[eye];
+		}
+		
+		ovr_Destroy(session);
+
+		ovr_Shutdown();
+		return;
+	}
+
+	public: Scene* Initialize()
+	{
+		mirrorTexture = nullptr;
+		mirrorFBO = 0;
+
+		for (int eye = 0; eye < 2; ++eye)
+		{
+			if( eyeRenderTexture[eye] != nullptr )
+				delete eyeRenderTexture[eye];
+			
+			eyeRenderTexture[eye] = nullptr;
+		}
+
+		frameIndex = 0;
+
+		ovrResult result = ovr_Create(&session, &luid);
+		//if (!OVR_SUCCESS(result))
+			// return retryCreate;
+
+		if (Compare(luid, GetDefaultAdapterLuid())) // If luid that the Rift is on is not the default adapter LUID...
+		{
+			VALIDATE(false, "OpenGL supports only the default graphics adapter.");
+		}
+
+		hmdDesc = ovr_GetHmdDesc(session);
+
+		// Setup Window and Graphics
+		// Note: the mirror window can be any size, for this sample we use 1/2 the HMD resolution
+		windowSize = { hmdDesc.Resolution.w , hmdDesc.Resolution.h };
+		if (!Platform.InitDevice(windowSize.w, windowSize.h, reinterpret_cast<LUID*>(&luid)))
+			return nullptr;
+
+		// Make eye render buffers
+		for (int eye = 0; eye < 2; ++eye)
+		{
+			ovrSizei idealTextureSize = ovr_GetFovTextureSize(session, ovrEyeType(eye), hmdDesc.DefaultEyeFov[eye], 1);
+			eyeRenderTexture[eye] = new OculusTextureBuffer(session, idealTextureSize, 1);
+
+			if (!eyeRenderTexture[eye]->ColorTextureChain || !eyeRenderTexture[eye]->DepthTextureChain)
+			{
+				//if (retryCreate) goto Done;
+				return nullptr;
+				VALIDATE(false, "Failed to create texture.");
+			}
+		}
+
+		ovrMirrorTextureDesc desc;
+		memset(&desc, 0, sizeof(desc));
+		desc.Width = windowSize.w;
+		desc.Height = windowSize.h;
+		desc.Format = OVR_FORMAT_R8G8B8A8_UNORM_SRGB;
+
+		// Create mirror texture and an FBO used to copy mirror texture to back buffer
+		result = ovr_CreateMirrorTextureWithOptionsGL(session, &desc, &mirrorTexture);
+		if (!OVR_SUCCESS(result))
+		{
+			//if (retryCreate) goto Done;
+			return nullptr;
+			VALIDATE(false, "Failed to create mirror texture.");
+		}
+
+		// Configure the mirror read buffer
+		GLuint texId;
+		ovr_GetMirrorTextureBufferGL(session, mirrorTexture, &texId);
+
+		glGenFramebuffers(1, &mirrorFBO);
+		glBindFramebuffer(GL_READ_FRAMEBUFFER, mirrorFBO);
+		glFramebufferTexture2D(GL_READ_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, texId, 0);
+		glFramebufferRenderbuffer(GL_READ_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_RENDERBUFFER, 0);
+		glBindFramebuffer(GL_READ_FRAMEBUFFER, 0);
+
+		// Turn off vsync to let the compositor do its magic
+		wglSwapIntervalEXT(0);
+
+		// FloorLevel will give tracking poses where the floor height is 0
+		ovr_SetTrackingOriginType(session, ovrTrackingOrigin_FloorLevel);
+
+		// Can only initialize scene AFTER Rift has been initialized
+		return new Scene(false);
+	}
+
+	public: bool Process( Scene *curScene )
+	{
+            ovrInputState inputState;
+            ovr_GetInputState(session, ovrControllerType_Touch, &inputState);
+//
+            //inputState.Thumbstick[ovrHand_Left].y
+            
+            ovrSessionStatus sessionStatus;
+			ovr_GetSessionStatus(session, &sessionStatus);
+			if (sessionStatus.ShouldRecenter)
+				ovr_RecenterTrackingOrigin(session);
+
+			if (sessionStatus.IsVisible)
+			{
+				// Keyboard inputs to adjust player orientation
+				static float Yaw(3.141592f);
+				if (Platform.Key[VK_LEFT])  Yaw += 0.02f;
+				if (Platform.Key[VK_RIGHT]) Yaw -= 0.02f;
+                if( abs(inputState.Thumbstick[ovrHand_Right].x) > 0.9f)
+                    Yaw -= inputState.Thumbstick[ovrHand_Right].x*0.02f;
+
+                // Keyboard inputs to adjust player position
+				static Vector3f Pos2(0.0f, 0.0f, zCur);
+                if (bInitFlyIn)
+				{
+					if (zCur < 90.0f)
+						zCur += 0.25f;
+					else
+					{
+						bInitFlyIn = false;
+						zCur = 90.0f;
+					}
+					Pos2.z = zCur;
+				}
+
+                // TODO::TODO::TODO::TODO::TODO::TODO::TODO::TODO::TODO::TODO::TODO::TODO::TODO::TODO
+                // Need to figure out the problem with pressing forward or backwards on the joystick and 
+                // getting movement to go where I'm looking, not the current yaw angle. 
+                // Naturally, if I am looking in one direction, I can still move in another, 
+                if(abs(inputState.Thumbstick[ovrHand_Right].y)>0.75f)
+                    Pos2 -= Matrix4f::RotationY(Yaw).Transform(Vector3f(0, 0, inputState.Thumbstick[ovrHand_Right].y*0.25f));
+
+                if (Platform.Key['W'] || Platform.Key[VK_UP])     Pos2 += Matrix4f::RotationY(Yaw).Transform(Vector3f(0, 0, -0.05f));
+				if (Platform.Key['S'] || Platform.Key[VK_DOWN])   Pos2 += Matrix4f::RotationY(Yaw).Transform(Vector3f(0, 0, +0.05f));
+				if (Platform.Key['D'])                            Pos2 += Matrix4f::RotationY(Yaw).Transform(Vector3f(+0.05f, 0, 0));
+				if (Platform.Key['A'])                            Pos2 += Matrix4f::RotationY(Yaw).Transform(Vector3f(-0.05f, 0, 0));
+
+				
+				// Call ovr_GetRenderDesc each frame to get the ovrEyeRenderDesc, as the returned values (e.g. HmdToEyePose) may change at runtime.
+				ovrEyeRenderDesc eyeRenderDesc[2];
+				eyeRenderDesc[0] = ovr_GetRenderDesc(session, ovrEye_Left, hmdDesc.DefaultEyeFov[0]);
+				eyeRenderDesc[1] = ovr_GetRenderDesc(session, ovrEye_Right, hmdDesc.DefaultEyeFov[1]);
+
+				// Get eye poses, feeding in correct IPD offset
+				ovrPosef EyeRenderPose[2];
+				ovrPosef HmdToEyePose[2] = { eyeRenderDesc[0].HmdToEyePose,
+											 eyeRenderDesc[1].HmdToEyePose };
+
+				double sensorSampleTime;    // sensorSampleTime is fed into the layer later
+				ovr_GetEyePoses(session, frameIndex, ovrTrue, HmdToEyePose, EyeRenderPose, &sensorSampleTime);
+
+				ovrTimewarpProjectionDesc posTimewarpProjectionDesc = {};
+
+				// Render Scene to Eye Buffers
+				for (int eye = 0; eye < 2; ++eye)
+				{
+					// Switch to eye render target
+					eyeRenderTexture[eye]->SetAndClearRenderSurface();
+
+					// Get view and projection matrices
+					Matrix4f rollPitchYaw = Matrix4f::RotationY(Yaw);
+					Matrix4f finalRollPitchYaw = rollPitchYaw * Matrix4f(EyeRenderPose[eye].Orientation);
+					Vector3f finalUp = finalRollPitchYaw.Transform(Vector3f(0, 1, 0));
+					Vector3f finalForward = finalRollPitchYaw.Transform(Vector3f(0, 0, -1));
+					Vector3f shiftedEyePos = Pos2 + rollPitchYaw.Transform(EyeRenderPose[eye].Position);
+
+                    Matrix4f view = Matrix4f::LookAtRH(shiftedEyePos, shiftedEyePos + finalForward, finalUp);
+					Matrix4f proj = ovrMatrix4f_Projection(hmdDesc.DefaultEyeFov[eye], 0.2f, 1000.0f, ovrProjection_None);
+					posTimewarpProjectionDesc = ovrTimewarpProjectionDesc_FromProjection(proj, ovrProjection_None);
+
+					// Render world
+					curScene->Render(view, proj);
+
+					// Avoids an error when calling SetAndClearRenderSurface during next iteration.
+					// Without this, during the next while loop iteration SetAndClearRenderSurface
+					// would bind a framebuffer with an invalid COLOR_ATTACHMENT0 because the texture ID
+					// associated with COLOR_ATTACHMENT0 had been unlocked by calling wglDXUnlockObjectsNV.
+					eyeRenderTexture[eye]->UnsetRenderSurface();
+
+					// Commit changes to the textures so they get picked up frame
+					eyeRenderTexture[eye]->Commit();
+				}
+
+				// Do distortion rendering, Present and flush/sync
+
+				ovrLayerEyeFovDepth ld = {};
+				ld.Header.Type = ovrLayerType_EyeFovDepth;
+				ld.Header.Flags = ovrLayerFlag_TextureOriginAtBottomLeft;   // Because OpenGL.
+				ld.ProjectionDesc = posTimewarpProjectionDesc;
+				ld.SensorSampleTime = sensorSampleTime;
+
+				for (int eye = 0; eye < 2; ++eye)
+				{
+					ld.ColorTexture[eye] = eyeRenderTexture[eye]->ColorTextureChain;
+					ld.DepthTexture[eye] = eyeRenderTexture[eye]->DepthTextureChain;
+					ld.Viewport[eye] = Recti(eyeRenderTexture[eye]->GetSize());
+					ld.Fov[eye] = hmdDesc.DefaultEyeFov[eye];
+					ld.RenderPose[eye] = EyeRenderPose[eye];
+				}
+
+				ovrLayerHeader* layers = &ld.Header;
+				ovrResult result = ovr_SubmitFrame(session, frameIndex, nullptr, &layers, 1);
+				// exit the rendering loop if submit returns an error, will retry on ovrError_DisplayLost
+				if (!OVR_SUCCESS(result))
+					return false;
+
+				frameIndex++;
+			}
+
+			// Blit mirror texture to back buffer
+			glBindFramebuffer(GL_READ_FRAMEBUFFER, mirrorFBO);
+			glBindFramebuffer(GL_DRAW_FRAMEBUFFER, 0);
+			GLint w = windowSize.w;
+			GLint h = windowSize.h;
+			glBlitFramebuffer(0, h, w, 0,
+				0, 0, w, h,
+				GL_COLOR_BUFFER_BIT, GL_NEAREST);
+			glBindFramebuffer(GL_READ_FRAMEBUFFER, 0);
+
+			SwapBuffers(Platform.hDC);
+			return true;
+	}
+
+	private: int Compare(const ovrGraphicsLuid& lhs, const ovrGraphicsLuid& rhs)
+	{
+		return memcmp(&lhs, &rhs, sizeof(ovrGraphicsLuid));
+	}
+
+	private: ovrGraphicsLuid GetDefaultAdapterLuid()
+	{
+		ovrGraphicsLuid luid = ovrGraphicsLuid();
+
+#if defined(_WIN32)
+		IDXGIFactory* factory = nullptr;
+
+		if (SUCCEEDED(CreateDXGIFactory(IID_PPV_ARGS(&factory))))
+		{
+			IDXGIAdapter* adapter = nullptr;
+
+			if (SUCCEEDED(factory->EnumAdapters(0, &adapter)))
+			{
+				DXGI_ADAPTER_DESC desc;
+
+				adapter->GetDesc(&desc);
+				memcpy(&luid, &desc.AdapterLuid, sizeof(luid));
+				adapter->Release();
+			}
+
+			factory->Release();
+		}
+#endif
+
+		return luid;
+	}
+};
